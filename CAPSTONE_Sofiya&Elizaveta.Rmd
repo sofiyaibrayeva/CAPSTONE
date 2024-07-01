@@ -1,0 +1,510 @@
+---
+title: "Capstone project"
+author: "sofiya"
+date: "2024-06-30"
+output:
+  pdf_document: default
+  html_document: default
+runtime: shiny
+---
+
+## Capstone Final Group Project
+
+### *Sofiya Ibrayeva, Elizaveta Titova*
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+### Loading the dataset
+
+```{r}
+zillow <- read.csv("cleaned_zillow.csv")
+head(zillow)
+```
+
+```{r}
+# checking the missing values
+colMeans(is.na(zillow))
+```
+
+```{r}
+sum(is.na(zillow))
+```
+
+```{r}
+# dropping the missing values
+Zillow <- na.omit(zillow)
+```
+
+```{r}
+sum(is.na(Zillow))
+```
+
+```{r}
+# Checking the duplicate rows
+duplicated_rows <- duplicated(Zillow)
+num_duplicates <- sum(duplicated_rows)
+cat("Number of duplicate rows: ", num_duplicates, "\n")
+```
+
+```{r}
+# Viewing the data
+head(Zillow)
+```
+
+```{r}
+# Viewing the structure of the Zillow data
+str(Zillow)
+```
+
+## As we can see, the Zillow dataset has 14853 obs. of 14 variables. The predicted or dependent variable is ListedPrice, and other 13 variable will be the independent variable in our multiple regression model.
+
+```{r}
+# Getting the summary
+summary(Zillow)
+```
+
+```{r}
+#Getting the counf of listings in each state
+count_State <- table(Zillow$State)
+count_State_prop <- prop.table(count_State)
+count_State
+count_State_prop
+```
+
+## Data Visualisation
+
+```{r}
+# Visualising the count of listings in each state 
+barplot(count_State,
+main = "State Count",
+xlab = "State",
+ylab = "Count",
+col = "steelblue",
+cex.names = 0.8,
+cex.axis = 0.8,
+width = 0.5)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+# Function to remove outliers based on IQR
+remove_outliers <- function(df, column) {
+  Q1 <- quantile(df[[column]], 0.25, na.rm = TRUE)
+  Q3 <- quantile(df[[column]], 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  df <- df %>% filter(.data[[column]] >= lower_bound & .data[[column]] <= upper_bound)
+  return(df)
+}
+
+# Remove outliers for each state
+Zillow_no_outliers <- Zillow %>%
+  group_by(State) %>%
+  group_modify(~remove_outliers(.x, "ListedPrice")) %>%
+  ungroup()
+
+# Plot the data without outliers
+ggplot(Zillow_no_outliers, aes(x = State, y = ListedPrice)) +
+  geom_boxplot() +
+  labs(title = "Box Plot of Listed Prices by State", x = "State", y = "Listed Price") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r}
+# Distribution of Property ListedPrices
+library(tidyverse)
+ggplot(Zillow_no_outliers, aes(x = ListedPrice)) +
+  geom_histogram(binwidth = 50000, fill = "blue", color = "black", alpha = 0.7) +
+  labs(title = "Distribution of Property ListedPrices", x = "ListedPrice", y = "Count")
+```
+
+```{r}
+# ListedPrice vs. Area
+ggplot(Zillow_no_outliers, aes(x = Area, y = ListedPrice)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "ListedPrice vs. Area", x = "Area (sqft)", y = "ListedPrice")
+```
+
+```{r}
+# Box Plot of ListedPrices by Stat
+ggplot(Zillow_no_outliers, aes(x = State, y = ListedPrice)) +
+  geom_boxplot() +
+  labs(title = "Box Plot of ListedPrices by State", x = "State", y = "ListedPrice") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+```{r}
+# Market Estimate vs. Rent Estimate
+ggplot(Zillow_no_outliers, aes(x = MarketEstimate, y = RentEstimate)) +
+  geom_point(alpha = 0.6) +
+  labs(title = "Market Estimate vs. Rent Estimate", x = "Market Estimate", y = "Rent Estimate")
+```
+
+```{r}
+# "Distribution of ListedPrice up to $1,000,000"
+
+
+# Subset the data where ListedPrice is less than or equal to $1,000,000
+sub_df <- subset(Zillow_no_outliers, ListedPrice <= 1000000)
+
+# Create the histogram with KDE
+ggplot(sub_df, aes(x = ListedPrice)) +
+  geom_histogram(bins = 30, aes(y = ..density..), fill = "lightblue", color = "black") +
+  geom_density(alpha = 0.2, fill = "orange") +
+  labs(title = "Distribution of ListedPrice up to $1,000,000",
+       x = "ListedPrice",
+       y = "Frequency") +
+  theme_minimal()
+```
+
+## Statictical Data
+
+```{r}
+# Summary stats
+summary(Zillow_no_outliers)
+summary_stats <- Zillow_no_outliers %>%
+  summarise(
+    avg_ListedPrice = mean(ListedPrice, na.rm = TRUE),
+    med_ListedPrice = median(ListedPrice, na.rm = TRUE),
+    avg_rent = mean(RentEstimate, na.rm = TRUE),
+    med_rent = median(RentEstimate, na.rm = TRUE),
+    avg_area = mean(Area, na.rm = TRUE),
+    med_area = median(Area, na.rm = TRUE)
+  )
+print(summary_stats)
+```
+
+```{r}
+# Getting the correlation values between the dependent and independent values
+corr <- sapply(Zillow_no_outliers, function(col) if (is.numeric(col)) cor(Zillow_no_outliers$ListedPrice[complete.cases(Zillow_no_outliers$ListedPrice, col)], col) else NA)
+
+corr
+
+```
+
+```{r}
+# 3. Correlation Analysis
+library(corrplot)
+
+cor_matrix <- cor(Zillow_no_outliers[, c("Bedroom", "Bathroom", "Area", "PPSq", "LotArea", "ListedPrice")], use = "complete.obs")
+corrplot(cor_matrix, method = "circle")
+```
+
+```{r}
+# Load necessary libraries
+library(plotly)
+library(dplyr)
+library(ggplot2)
+#install.packages("leaflet")
+library(leaflet)
+library(corrplot)
+library(caret)
+#install.packages("forecast")
+#library(forecast)
+library(scales)
+```
+
+```{r}
+# 2. Geospatial Analysis: Map the distribution of properties
+# Define color palette based on property ListedPrices
+pal <- colorNumeric(
+  palette = c("grey", "blue"),
+  domain = c(min(Zillow_no_outliers$ListedPrice), 500000, max(Zillow_no_outliers$ListedPrice)),
+  na.color = "transparent"
+)
+
+# Create Leaflet map
+leaflet(Zillow_no_outliers) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    ~Longitude, ~Latitude,
+    radius = ~sqrt(Area) / 10,
+    color = ~pal(ListedPrice),
+    fillOpacity = 0.7,
+    popup = ~paste(
+      "<strong>State:</strong>", State, "<br>",
+      "<strong>City:</strong>", City, "<br>",
+      "<strong>ListedPrice:</strong>", scales::dollar(ListedPrice, prefix = "$")
+    )
+  ) %>%
+  addLegend(
+    "bottomright",
+    pal = pal,
+    values = ~ListedPrice,
+    title = "Property ListedPrice",
+    labFormat = labelFormat(prefix = "$"),
+    opacity = 1
+  )
+
+```
+
+
+
+## Splitting the Dataset
+
+```{r}
+library(caret)
+# Setting seed for reproducibility
+set.seed(123)
+
+# Splitting the data into training and testing sets (70% training, 30% testing)
+split_index <- createDataPartition(Zillow_no_outliers$ListedPrice, p = 0.7, list = FALSE)
+training_set <- Zillow_no_outliers[split_index, ]
+testing_set <- Zillow_no_outliers[-split_index, ]
+```
+
+```{r}
+# Printing the number of rows in each set to verify the split
+cat("Number of rows in the training set: ", nrow(training_set), "\n")
+cat("Number of rows in the testing set: ", nrow(testing_set), "\n")
+```
+
+```{r}
+#Viewing the training set 
+summary(training_set)
+head(training_set)
+```
+
+```{r}
+# dropping unnecessary columns
+columns_to_drop <- c("City_State", "State", "City", "Street", "PredictedListedPrice")
+train_set <- training_set[, !(names(training_set) %in% columns_to_drop)]
+test_set <- testing_set[, !(names(testing_set) %in% columns_to_drop)]
+```
+
+```{r}
+# Converting predictors to matrix form
+x_train <- as.matrix(train_set[, -which(names(train_set) == "ListedPrice")])
+x_test <- as.matrix(test_set[, -which(names(test_set) == "ListedPrice")])
+# Ensuring all predictor variables are numeric 
+train_set[] <- lapply(train_set, as.numeric)
+test_set[] <- lapply(test_set, as.numeric)
+```
+
+```{r}
+# Performing linear regression
+lm_model1 <- lm(ListedPrice ~ Bedroom + Bathroom + Area + LotArea  + PPSq , data = train_set)
+
+# Summary of the model 1
+summary(lm_model1)
+```
+
+```{r}
+# Performing linear regression
+lm_model2 <- lm(ListedPrice ~ MarketEstimate , data = train_set)
+
+# Summary of the model 2
+summary(lm_model2)
+```
+
+```{r}
+# Performing linear regression
+lm_model3 <- lm(ListedPrice ~ Bedroom + Bathroom + Area + LotArea + RentEstimate + Latitude + Longitude , data = train_set)
+
+# Summary of the model 3
+summary(lm_model3)
+```
+
+```{r}
+# Performing linear regression
+lm_model4 <- lm(ListedPrice ~ Bedroom + Bathroom + Area + LotArea + PPSq , data = train_set)
+
+# Summary of the model 4
+summary(lm_model4)
+```
+
+```{r}
+# Performing linear regression
+lm_model5 <- lm(ListedPrice ~ Bedroom + Bathroom + Area + LotArea + PPSq + RentEstimate  , data = train_set)
+
+# Summary of the model 5
+summary(lm_model5)
+```
+
+```{r}
+# Tavle of 5 models
+r_squared <- c(summary(lm_model1)$r.squared, summary(lm_model2)$r.squared,  summary(lm_model3)$r.squared,  summary(lm_model4)$r.squared,  summary(lm_model5)$r.squared)
+Adj_r_squared <- c(summary(lm_model1)$adj.r.squared, summary(lm_model2)$adj.r.squared, summary(lm_model3)$adj.r.square, summary(lm_model4)$adj.r.square, summary(lm_model5)$adj.r.square)
+model_names <- c("model1", "model2","model3","model4","model5" )
+r_squared_table <- data.frame(Model = model_names, R_Squared = r_squared, Adjusted_R =Adj_r_squared )
+r_squared_table
+```
+
+# Visualizing the best perfoming Linear Model
+
+```{r}
+plot(lm_model2)
+```
+
+# Now we are testing the model on the new unseen data
+
+```{r}
+Test_Predictions <- predict(lm_model2, newdata = test_set)
+head(Test_Predictions)
+```
+
+# Calculating the RMSE for the model 2
+
+```{r}
+summary_lm <- summary(lm_model2)
+rmse_lmmodel2 <- summary_lm$sigma
+rmse_lmmodel2
+```
+
+```{r}
+# Visualising the actual and predicted prices
+
+# Combine actual prices and predicted prices into a data frame
+results <- data.frame(Actual = test_set$ListedPrice, Predicted = Test_Predictions)
+
+# Plotting actual vs predicted prices
+ggplot(results, aes(x = Actual, y = Predicted)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "dashed") +  # 45-degree line for reference
+  labs(x = "Actual Price", y = "Predicted Price", title = "Actual vs Predicted Prices")
+```
+
+## Lasso Model
+
+```{r}
+# Loading necessary libraries 
+library(glmnet)
+
+# Training the Lasso regression model on the training set
+lasso_model <- cv.glmnet(x_train, train_set$ListedPrice, alpha = 1)
+
+# Printing the best lambda value chosen by cross-validation
+print(paste("Best lambda value:", lasso_model$lambda.min))
+```
+
+```{r}
+#Making predictions on the testing set
+lasso_predictions <- predict(lasso_model, newx = x_test, s = "lambda.min")
+
+# Evaluating the model performance (e.g., calculate RMSE)
+rmse_lasso <- sqrt(mean((lasso_predictions - test_set$ListedPrice)^2))
+print(paste("Lasso Regression RMSE on Testing Set:", rmse_lasso))
+```
+
+```{r}
+# Plotting actual vs. predicted values
+plot(test_set$ListedPrice, lasso_predictions,
+     main = "Actual vs. Predicted ListedPrice",
+     xlab = "Actual ListedPrice",
+     ylab = "Predicted ListedPrice",
+     col = "blue", pch = 16)
+
+
+abline(0, 1, col = "red", lty = 2)
+legend("topleft", legend = c("Data Points", "Ideal Prediction"),
+       col = c("blue", "red"), pch = c(16, NA), lty = c(NA, 2))
+```
+
+## Decision Trees
+
+```{r}
+library(rpart)
+library(rpart.plot)
+# Training the model with minsplit = 30
+model_minsplit_30 <- rpart(ListedPrice ~ ., data = train_set, method = 'anova', control = rpart.control(minsplit = 30))
+
+# Training the model with minsplit = 50
+model_minsplit_50 <- rpart(ListedPrice ~ ., data = train_set, method = 'anova', control = rpart.control(minsplit = 50))
+
+# Training the model with minsplit = 60
+model_minsplit_60 <- rpart(ListedPrice ~ ., data = train_set, method = 'anova', control = rpart.control(minsplit = 60))
+
+# Training the model with minsplit = 90
+model_minsplit_90 <- rpart(ListedPrice ~ ., data = train_set, method = 'anova', control = rpart.control(minsplit = 90))
+
+# Evaluating the models on validation set
+pred_minsplit_30 <- predict(model_minsplit_30, test_set)
+pred_minsplit_50 <- predict(model_minsplit_50, test_set)
+pred_minsplit_60 <- predict(model_minsplit_60, test_set)
+pred_minsplit_90 <- predict(model_minsplit_90, test_set)
+
+# Calculating performance metric (RMSE)
+rmse_minsplit_30 <- sqrt(mean((pred_minsplit_30 - test_set$ListedPrice)^2))
+rmse_minsplit_50 <- sqrt(mean((pred_minsplit_50 - test_set$ListedPrice)^2))
+rmse_minsplit_60 <- sqrt(mean((pred_minsplit_60 - test_set$ListedPrice)^2))
+rmse_minsplit_90 <- sqrt(mean((pred_minsplit_90 - test_set$ListedPrice)^2))
+
+# Comparing RMSE values
+rmse_values <- c(minsplit_30 = rmse_minsplit_30, minsplit_50 = rmse_minsplit_50, minsplit_60 = rmse_minsplit_60, minsplit_90 = rmse_minsplit_90)
+print(rmse_values)
+
+```
+
+## After analyzing the results, we can say that xx and 50 and 60 perform the best among others.
+
+```{r}
+# Visualising the best perfoming model
+rpart.plot(model_minsplit_50, extra = 1, type = 0, box.palette = c("lightblue", "grey"), under = TRUE)
+```
+
+```{r}
+# Plot actual vs. predicted values
+plot(test_set$ListedPrice, pred_minsplit_50,
+     main = "Actual vs. Predicted ListedPrice",
+     xlab = "Actual ListedPrice",
+     ylab = "Predicted ListedPrice",
+     col = "blue", pch = 16)
+
+abline(0, 1, col = "red", lty = 2)
+
+legend("topleft", legend = c("Data Points", "Ideal Prediction"),
+       col = c("blue", "red"), pch = c(16, NA), lty = c(NA, 2))
+```
+
+## Ridge Model
+
+```{r}
+# Training the Ridge regression model on the training set
+ridge_model <- cv.glmnet(x_train, train_set$ListedPrice, alpha = 0)
+
+# Printing the best lambda value chosen by cross-validation
+print(paste("Best lambda value:", ridge_model$lambda.min))
+
+# Making predictions on the testing set
+ridge_predictions <- predict(ridge_model, newx = x_test, s = "lambda.min")
+
+# Evaluating the model performance (e.g., calculate RMSE)
+rmse_ridge <- sqrt(mean((ridge_predictions - test_set$ListedPrice)^2))
+print(paste("Ridge Regression RMSE on Testing Set:", rmse_ridge))
+```
+
+```{r}
+# Plotting actual vs. predicted values
+plot(test_set$ListedPrice, ridge_predictions,
+     main = "Actual vs. Predicted ListedPrice",
+     xlab = "Actual ListedPrice",
+     ylab = "Predicted ListedPrice",
+     col = "blue", pch = 16)
+
+abline(0, 1, col = "red", lty = 2)
+
+legend("topleft", legend = c("Data Points", "Ideal Prediction"),
+       col = c("blue", "red"), pch = c(16, NA), lty = c(NA, 2))
+```
+
+### Creating a table of all RMSE values
+
+```{r}
+
+rmse_lmmodel2 <- sqrt(mean((Test_Predictions - testing_set$ListedPrice)^2))  
+
+model_names <- c("Lasso", "Decision Tree", "Ridge", "Linear Model")
+rmse_values <- c(rmse_lasso, rmse_minsplit_50, rmse_ridge, rmse_lmmodel2)
+rmse_table <- data.frame(Model = model_names, RMSE = rmse_values)
+
+# Formatting RMSE values for better readability
+rmse_table$RMSE <- sprintf("%.2f", rmse_table$RMSE)  
+
+# Printing the RMSE table
+print(rmse_table)
+```
